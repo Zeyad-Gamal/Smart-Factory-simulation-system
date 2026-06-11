@@ -1,0 +1,18 @@
+# Python virtual environments
+venv/
+ENV/
+.venv/
+SOC/venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# Laravel
+vendor/
+
+# Env files
+.env

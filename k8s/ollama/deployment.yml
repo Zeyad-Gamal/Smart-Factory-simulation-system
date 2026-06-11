@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: ollama
-          image: digigrad/ollama:latest  # ← replace with your image
+          image: digigrad/ollama:v1  # ← replace with your image
           ports:
             - containerPort: 11434
           volumeMounts:

@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: soc
-          image: digigrad/soc:latest  # ← replace with your image
+          image: digigrad/soc:v1  # ← replace with your image
           ports:
             - containerPort: 5000
           envFrom:
