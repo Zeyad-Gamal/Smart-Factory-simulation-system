@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: soc-config
+  namespace: soc
+data:
+  # ── SOC Backend ───────────────────────────────
+  LARAVEL_URL: "http://backend.scada-system.svc.cluster.local:8000"
+
+  # ── AI Agent ──────────────────────────────────
+  SOC_BASE_URL:   "http://soc-service.soc.svc.cluster.local:5000"
+  OLLAMA_URL:     "http://ollama-service.soc.svc.cluster.local:11434"
+  MODEL:          "llama3.2"
+  POLL_INTERVAL:  "30"
+  MAX_LOGS_BATCH: "20"

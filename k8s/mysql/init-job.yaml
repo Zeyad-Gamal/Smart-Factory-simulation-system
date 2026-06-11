@@ -1,0 +1,132 @@
+# apiVersion: batch/v1
+# kind: Job
+# metadata:
+#   name: mysql-init-job
+#   namespace: scada-system
+# spec:
+#   backoffLimit: 3
+#   ttlSecondsAfterFinished: 600   # auto-cleanup after 10 min
+
+#   template:
+#     spec:
+#       restartPolicy: Never
+
+#       # Copy the baked-in SQL out of the image into a shared volume,
+#       # so the import step has a guaranteed path to read from.
+#       initContainers:
+#         - name: copy-sql
+#           image: digigrad/mysql:v1
+#           imagePullPolicy: Always
+#           command:
+#             - sh
+#             - -c
+#             - |
+#               echo "Copying SQL file to shared volume..."
+#               cp /init/scada_system.sql /sql/scada_system.sql
+#               echo "Done."
+#           volumeMounts:
+#             - name: sql-data
+#               mountPath: /sql
+
+#       containers:
+#         - name: mysql-import
+#           image: digigrad/mysql:v1
+#           imagePullPolicy: Always
+
+#           command:
+#             - sh
+#             - -c
+#             - |
+#               set -e
+
+#               echo "Waiting for MySQL to be ready..."
+
+#               until mysqladmin ping \
+#                 -h mysql \
+#                 -uroot \
+#                 -p"$MYSQL_ROOT_PASSWORD" \
+#                 --silent; do
+#                   echo "  MySQL not ready yet — retrying in 5s..."
+#                   sleep 5
+#               done
+
+#               echo "MySQL is ready. Importing SQL..."
+
+#               mysql \
+#                 -h mysql \
+#                 -uroot \
+#                 -p"$MYSQL_ROOT_PASSWORD" \
+#                 --max_allowed_packet=512M \
+#                 --connect-timeout=60 \
+#                 scada_db < /sql/scada_system.sql
+
+#               echo "SQL import completed successfully."
+
+#           env:
+#             - name: MYSQL_ROOT_PASSWORD
+#               valueFrom:
+#                 secretKeyRef:
+#                   name: mysql-secret
+#                   key: MYSQL_ROOT_PASSWORD
+
+#           volumeMounts:
+#             - name: sql-data
+#               mountPath: /sql
+
+#       volumes:
+#         - name: sql-data
+#           emptyDir: {}
+
+
+
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mysql-init-job
+  namespace: scada-system
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 600
+
+  template:
+    spec:
+      restartPolicy: Never
+
+      containers:
+        - name: mysql-import
+          image: mysql:8.0
+
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+
+              echo "Waiting for MySQL..."
+
+              until mysqladmin ping -h mysql -uroot -p"$MYSQL_ROOT_PASSWORD" --silent; do
+                sleep 5
+              done
+
+              echo "Importing SQL..."
+
+              mysql -h mysql -uroot -p"$MYSQL_ROOT_PASSWORD" scada_db < /sql/scada_system.sql
+
+              echo "Done."
+
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+
+      volumes:
+        - name: sql
+          configMap:
+            name: mysql-init-sql

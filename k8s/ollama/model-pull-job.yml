@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ollama-model-pull
+  namespace: soc
+spec:
+  ttlSecondsAfterFinished: 300   # auto-delete job after 5 min
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: model-puller
+          image: digigrad/ollama:latest  # ← replace with your image
+          command:
+            - sh
+            - -c
+            - |
+              echo "[JOB] Waiting for Ollama service..."
+              until curl -sf http://ollama-service:11434/api/tags > /dev/null; do
+                echo "[JOB] Ollama not ready yet — retrying in 5s..."
+                sleep 5
+              done
+              echo "[JOB] Pulling llama3.2..."
+              ollama pull llama3.2
+              echo "[JOB] Model ready!"
+          env:
+            - name: OLLAMA_HOST
+              value: "http://ollama-service:11434"
+          volumeMounts:
+            - name: ollama-storage
+              mountPath: /root/.ollama
+      volumes:
+        - name: ollama-storage
+          persistentVolumeClaim:
+            claimName: ollama-pvc

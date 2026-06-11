@@ -1,0 +1,160 @@
+# apiVersion: apps/v1
+# kind: StatefulSet
+# metadata:
+#   name: mysql
+#   namespace: scada-system
+# spec:
+#   serviceName: mysql
+#   replicas: 1
+#   selector:
+#     matchLabels:
+#       app: mysql
+
+#   template:
+#     metadata:
+#       labels:
+#         app: mysql
+
+#     spec:
+#       containers:
+#         - name: mysql
+#           image: digigrad/mysql:v1
+#           imagePullPolicy: Always
+
+#           ports:
+#             - containerPort: 3306
+
+#           envFrom:
+#             - secretRef:
+#                 name: mysql-secret
+
+#           volumeMounts:
+#             - name: mysql-storage
+#               mountPath: /var/lib/mysql
+
+#           readinessProbe:
+#             exec:
+#               command:
+#                 - sh
+#                 - -c
+#                 - mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD
+#             initialDelaySeconds: 20
+#             periodSeconds: 10
+
+#           livenessProbe:
+#             exec:
+#               command:
+#                 - sh
+#                 - -c
+#                 - mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD
+#             initialDelaySeconds: 30
+#             periodSeconds: 15
+
+#           resources:
+#             requests:
+#               cpu: "500m"
+#               memory: "512Mi"
+#             limits:
+#               cpu: "1"
+#               memory: "1Gi"
+
+#   # volumeClaimTemplates replaces the standalone mysql-pvc.yaml.
+#   # Kubernetes creates one PVC per replica automatically, named
+#   # mysql-storage-mysql-0, mysql-storage-mysql-1, etc.
+#   # This means replicas never share the same disk, which is correct
+#   # for a database.
+#   volumeClaimTemplates:
+#     - metadata:
+#         name: mysql-storage
+#       spec:
+#         accessModes:
+#           - ReadWriteOnce
+#         resources:
+#           requests:
+#             storage: 5Gi
+#         # Remove storageClassName to use the cluster default,
+#         # or set it explicitly for your environment:
+#         # storageClassName: standard
+
+
+
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: scada-system
+spec:
+  serviceName: mysql
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: mysql
+
+  template:
+    metadata:
+      labels:
+        app: mysql
+
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - containerPort: 3306
+
+          envFrom:
+            - secretRef:
+                name: mysql-secret
+
+          volumeMounts:
+            - name: mysql-storage
+              mountPath: /var/lib/mysql
+
+            #  THIS is how SQL should be loaded
+            - name: init-sql
+              mountPath: /docker-entrypoint-initdb.d
+
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD
+            initialDelaySeconds: 20
+            periodSeconds: 10
+
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD
+            initialDelaySeconds: 30
+            periodSeconds: 15
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+
+      volumes:
+        - name: init-sql
+          configMap:
+            name: mysql-init-sql
+
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-storage
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi

@@ -1,0 +1,46 @@
+---
+- name: Install Docker on RedHat family
+  package:
+    name: docker
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Install Docker on Debian family
+  apt:
+    name: docker.io
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Start Docker service
+  service:
+    name: docker
+    state: started
+    enabled: yes
+
+- name: Install Docker Compose plugin (RedHat family)
+  package:
+    name: docker-compose-plugin
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Install Docker Compose plugin (Debian family)
+  apt:
+    name: docker-compose-plugin
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Add ec2-user to docker group
+  user:
+    name: ec2-user
+    groups: docker
+    append: yes
+  when: ansible_distribution == "Amazon"
+
+- name: Add ubuntu user to docker group
+  user:
+    name: ubuntu
+    groups: docker
+    append: yes
+  when: ansible_distribution == "Ubuntu"

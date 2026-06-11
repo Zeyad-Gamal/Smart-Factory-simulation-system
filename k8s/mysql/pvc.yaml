@@ -1,0 +1,21 @@
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: mysql-pvc
+#   namespace: scada-system
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   resources:
+#     requests:
+#       storage: 5Gi
+
+
+# ── DEPRECATED ────────────────────────────────────────────────────────────────
+# This standalone PVC is no longer needed.
+# The StatefulSet now uses volumeClaimTemplates, which automatically creates
+# one PVC per replica (mysql-storage-mysql-0, mysql-storage-mysql-1, …).
+#
+# Applying this file would create an orphaned PVC that nothing mounts.
+# Safe to delete this file.
+# ──────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,45 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mysql-allow
+  namespace: scada-system
+spec:
+  podSelector:
+    matchLabels:
+      app: mysql
+
+  policyTypes:
+    - Ingress
+    - Egress
+
+  ingress:
+    # Only the backend may connect to MySQL
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+      ports:
+        - protocol: TCP
+          port: 3306
+
+    # Allow the init Job (no specific label) to connect — scoped to
+    # the scada-system namespace so nothing external can reach MySQL.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: scada-system
+      ports:
+        - protocol: TCP
+          port: 3306
+
+  egress:
+    # DNS resolution only — MySQL itself makes no outbound calls.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53

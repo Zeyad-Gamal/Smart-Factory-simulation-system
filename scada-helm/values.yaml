@@ -1,0 +1,78 @@
+namespace: scada-system
+
+frontend:
+  replicaCount: 2
+  image: digigrad/scada-frontend:v2
+  strategy:
+      maxSurge: 1
+      maxUnavailable: 1
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+backend:
+  replicaCount: 2
+  image: digigrad/factory-backend:v3
+  strategy:
+    maxSurge: 1
+    maxUnavailable: 1
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+mysql:
+  image: digigrad/mysql:8.0
+  storage: 2Gi
+  database: scada_db
+  user: scada_user
+  service:
+    port: 3306
+
+secrets:
+  mysqlRootPassword: Root@123
+  mysqlPassword: StrongPass123!
+  appKey: "base64:VYkot/f8qaPncPVEFu4n/RQMloQNxLn1E7ofeO1Ca/s="
+
+config:
+  APP_NAME: Laravel
+  APP_ENV: production
+  APP_DEBUG: "false"
+  APP_URL: http://localhost
+  DB_CONNECTION: mysql
+  DB_HOST: mysql
+  DB_PORT: "3306"
+
+ingress:
+  enabled: true
+  host: scada.local
+
+hpa:
+  backend:
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPU: 70
+
+  frontend:
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPU: 70
+
+rbac:
+  enabled: true
+
+networkPolicy:
+  enabled: true

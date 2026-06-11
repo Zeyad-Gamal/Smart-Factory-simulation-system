@@ -1,0 +1,105 @@
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: scada-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: Root@123
+      MYSQL_DATABASE: scada_db
+      MYSQL_USER: scada_user
+      MYSQL_PASSWORD: StrongPass123!
+    volumes:
+      - ./mysql/init:/docker-entrypoint-initdb.d
+      - mysql_data:/var/lib/mysql
+    networks:
+      - app-net
+
+  backend:
+    image: digigrad/factory-backend:v3
+    container_name: factory-backend
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    ports:
+      - "8001:8000"
+    environment:
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: scada_db
+      DB_USERNAME: scada_user
+      DB_PASSWORD: StrongPass123!
+    networks:
+      - app-net
+
+  frontend:
+    image: digigrad/scada-frontend:v2
+    container_name: scada-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "8002:80"
+    networks:
+      - app-net
+
+  ollama:
+
+    # build:
+    #   context: .
+    #   dockerfile: ollama/Dockerfile
+    # image: ollama/ollama:latest
+    image: digigrad/ollama:v1
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11435:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - app-net
+
+  soc:
+    # build:
+    #   context: ../SOC
+    #   dockerfile: ../docker/soc/Dockerfile
+    image: digigrad/soc:v1
+    container_name: soc
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - LARAVEL_URL=http://backend:8000
+    depends_on:
+      - ollama
+      - backend
+    networks:
+      - app-net
+
+  agent:
+    # build:
+    #   context: ../SOC
+    #   dockerfile: ../docker/agent/Dockerfile
+    image: digigrad/ai-agent:v1
+    container_name: ai_agent
+    restart: unless-stopped
+    environment:
+      - SOC_BASE_URL=http://soc:5000
+      - OLLAMA_URL=http://ollama:11434
+      - MODEL=llama3.2
+    depends_on:
+      - soc
+      - ollama
+    networks:
+      - app-net
+
+networks:
+  app-net:
+    driver: bridge
+
+volumes:
+  ollama_data:
+            driver: local
+  mysql_data:
+            driver: local

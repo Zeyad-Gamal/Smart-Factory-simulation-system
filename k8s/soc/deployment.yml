@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soc
+  namespace: soc
+  labels:
+    app: soc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: soc
+  template:
+    metadata:
+      labels:
+        app: soc
+    spec:
+      containers:
+        - name: soc
+          image: digigrad/soc:latest  # ← replace with your image
+          ports:
+            - containerPort: 5000
+          envFrom:
+            - configMapRef:
+                name: soc-config
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu:    "250m"
+            limits:
+              memory: "512Mi"
+              cpu:    "500m"
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 20
+            periodSeconds: 30

@@ -1,0 +1,22 @@
+to run values.yamel {Default}
+
+helm install scada scada-helm \
+  --namespace scada-system \
+  --create-namespace
+
+
+to run values-prod.yamel {Production}
+
+helm install scada-prod ./scada-helm \
+  -f scada-helm/values-prod.yaml \
+  --namespace scada-prod \
+  --create-namespace
+
+
+to run values-dev.yamel {Development}
+
+
+helm install scada-dev ./scada-helm \
+  -f scada-helm/values-dev.yaml \
+  --namespace scada-dev \
+  --create-namespace

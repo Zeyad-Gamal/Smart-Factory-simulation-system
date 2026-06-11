@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: soc-agent
+  namespace: soc
+  labels:
+    app: soc-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: soc-agent
+  template:
+    metadata:
+      labels:
+        app: soc-agent
+    spec:
+      containers:
+        - name: agent
+          image: digigrad/ai-agent:latest  # ← replace with your image
+          envFrom:
+            - configMapRef:
+                name: soc-config
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu:    "100m"
+            limits:
+              memory: "256Mi"
+              cpu:    "200m"
