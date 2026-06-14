@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 // ── Config ────────────────────────────────────────────────────
 const LARAVEL_URL  = '/api/'   // change if deployed
-const SOC_URL      = 'http://soc:5000'   // change if deployed
+const SOC_URL      = 'http://localhost:5000'   // change if deployed
 const POLL_INTERVAL = 5000                     // ms
 
 // ── State ─────────────────────────────────────────────────────
@@ -46,7 +46,7 @@ function mergeAlerts(newItems) {
 // 1. Fetch from Laravel (resolved decisions stored in DB)
 async function fetchFromLaravel() {
   try {
-    const res  = await fetch(`${LARAVEL_URL}/api/soc/alerts`)
+    const res  = await fetch(`${LARAVEL_URL}soc/alerts`)
     const data = await res.json()
     mergeAlerts(data.data || data || [])
   } catch (e) {

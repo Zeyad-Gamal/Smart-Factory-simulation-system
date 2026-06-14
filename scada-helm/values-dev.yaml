@@ -4,7 +4,7 @@ namespaces:
 
 frontend:
   replicaCount: 2
-  image: digigrad/scada-frontend:v5
+  image: digigrad/scada-frontend:v6
   strategy:
       maxSurge: 1
       maxUnavailable: 1

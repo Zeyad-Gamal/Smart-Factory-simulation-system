@@ -34,7 +34,7 @@ services:
       - app-net
 
   frontend:
-    image: digigrad/scada-frontend:v5
+    image: digigrad/scada-frontend:v6
     container_name: scada-frontend
     restart: unless-stopped
     depends_on:
