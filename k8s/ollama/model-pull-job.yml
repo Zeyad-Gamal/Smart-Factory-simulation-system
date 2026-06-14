@@ -10,7 +10,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: model-puller
-          image: digigrad/ollama:v1  # ← replace with your image
+          image: digigrad/ollama:v1.0.1  # ← replace with your image
           command:
             - sh
             - -c

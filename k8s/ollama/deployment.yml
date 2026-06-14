@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: ollama
-          image: digigrad/ollama:v1  # ← replace with your image
+          image: digigrad/ollama:v1.0.1  # ← replace with your image
           imagePullPolicy: Always
           ports:
             - containerPort: 11434
