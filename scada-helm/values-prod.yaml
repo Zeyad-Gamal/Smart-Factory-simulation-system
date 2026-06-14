@@ -124,7 +124,7 @@ ollama:
 
   image:
     repository: digigrad/ollama
-    tag: v1
+    tag: v1.0.1
 
   service:
     type: ClusterIP
