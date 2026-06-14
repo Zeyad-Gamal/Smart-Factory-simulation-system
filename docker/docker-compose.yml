@@ -50,7 +50,7 @@ services:
     #   context: .
     #   dockerfile: ollama/Dockerfile
     # image: ollama/ollama:latest
-    image: digigrad/ollama:v1
+    image: digigrad/ollama:v1.0.1
     container_name: ollama
     restart: unless-stopped
     ports:

@@ -23,7 +23,6 @@ spec:
         app: frontend
 
     spec:
-      serviceAccountName: frontend-sa
       
       containers:
         - name: frontend

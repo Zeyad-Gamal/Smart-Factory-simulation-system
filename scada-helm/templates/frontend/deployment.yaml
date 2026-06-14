@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Values.namespaces.app }}
 spec:
   replicas: {{ .Values.frontend.replicaCount }}
 
@@ -23,7 +23,6 @@ spec:
         app: frontend
 
     spec:
-      serviceAccountName: frontend-sa
 
       containers:
         - name: frontend

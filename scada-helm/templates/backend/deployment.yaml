@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Values.namespaces.app }}
 spec:
   replicas: {{ .Values.backend.replicaCount }}
 
@@ -23,7 +23,6 @@ spec:
         app: backend
 
     spec:
-      serviceAccountName: backend-sa
 
       containers:
         - name: backend
@@ -52,19 +51,27 @@ spec:
 
           readinessProbe:
             httpGet:
-              path: /api/scada-data
-              port: 8000
-            initialDelaySeconds: 20
-            periodSeconds: 10
-            timeoutSeconds: 5
-
-          livenessProbe:
-            httpGet:
-              path: /api/scada-data
+              path: /api/health
               port: 8000
             initialDelaySeconds: 40
+            periodSeconds: 10
+            timeoutSeconds: 5
+          
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 80
             periodSeconds: 15
             timeoutSeconds: 5
+          
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 8000
+            initialDelaySeconds: 10
+            failureThreshold: 30
+            periodSeconds: 10
 
           resources:
             requests:

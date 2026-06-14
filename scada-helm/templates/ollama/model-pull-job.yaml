@@ -1,0 +1,59 @@
+{{- if .Values.ollama.enabled }}
+
+apiVersion: batch/v1
+kind: Job
+
+metadata:
+  name: ollama-model-pull
+
+  namespace: {{ .Values.namespaces.soc }}
+
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+
+spec:
+  ttlSecondsAfterFinished: 300
+
+  template:
+    spec:
+
+      restartPolicy: OnFailure
+
+      containers:
+        - name: model-puller
+
+          image: "{{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}"
+
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for Ollama..."
+
+              until curl -sf http://ollama-service:11434/api/tags > /dev/null
+              do
+                echo "Ollama not ready yet..."
+                sleep 5
+              done
+
+              echo "Pulling model..."
+
+              ollama pull {{ .Values.ollama.model.name }}
+
+              echo "Model ready."
+
+          env:
+            - name: OLLAMA_HOST
+              value: "http://ollama-service:11434"
+
+          volumeMounts:
+            - name: ollama-storage
+              mountPath: /root/.ollama
+
+      volumes:
+        - name: ollama-storage
+          persistentVolumeClaim:
+            claimName: ollama-pvc
+
+{{- end }}

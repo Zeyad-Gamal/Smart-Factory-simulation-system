@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: mysql-init-job
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Values.namespaces.app }}
   annotations:
     "helm.sh/hook": post-install
     "helm.sh/hook-delete-policy": before-hook-creation

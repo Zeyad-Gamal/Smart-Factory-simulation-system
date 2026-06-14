@@ -1,4 +1,6 @@
-namespace: scada-prod
+namespaces:
+  app: scada-system
+  soc: soc
 
 frontend:
   replicaCount: 2
@@ -35,7 +37,7 @@ backend:
       memory: 512Mi
 
 mysql:
-  image: digigrad/mysql:8.0
+  image: mysql:8.0
   storage: 8Gi
   database: scada_db
   user: scada_user
@@ -71,8 +73,74 @@ hpa:
     maxReplicas: 10
     targetCPU: 70
 
-rbac:
-  enabled: true
-
 networkPolicy:
   enabled: true
+
+
+soc:
+  enabled: true
+
+  replicaCount: 2
+
+  image:
+    repository: digigrad/soc
+    tag: v1
+
+  service:
+    type: ClusterIP
+    port: 5000
+
+  model: llama3.2
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+agent:
+  enabled: true
+
+  replicaCount: 2
+
+  image:
+    repository: digigrad/ai-agent
+    tag: v1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+ollama:
+  enabled: true
+
+  replicaCount: 1
+
+  image:
+    repository: digigrad/ollama
+    tag: v1
+
+  service:
+    type: ClusterIP
+    port: 11434
+
+  persistence:
+    enabled: true
+    size: 20Gi
+
+  model:
+    name: llama3.2
+
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      cpu: "4"
+      memory: 8Gi

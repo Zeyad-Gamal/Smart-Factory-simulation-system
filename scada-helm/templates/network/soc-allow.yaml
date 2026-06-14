@@ -1,13 +1,15 @@
 {{- if .Values.networkPolicy.enabled }}
+
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: frontend-allow
-  namespace: {{ .Values.namespaces.app }}
+  name: soc-allow
+  namespace: {{ .Values.namespaces.soc }}
+
 spec:
   podSelector:
     matchLabels:
-      app: frontend
+      app: soc
 
   policyTypes:
     - Ingress
@@ -15,27 +17,47 @@ spec:
 
   ingress:
     - from:
-        - namespaceSelector: {}
-      ports:
-        - protocol: TCP
-          port: 80
-
-  egress:
-    - to:
         - podSelector:
             matchLabels:
+              app: ai-agent
+      ports:
+        - protocol: TCP
+          port: 5000
+
+  egress:
+
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.namespaces.app }}
+
+          podSelector:
+            matchLabels:
               app: backend
+
       ports:
         - protocol: TCP
           port: 8000
 
     - to:
+        - podSelector:
+            matchLabels:
+              app: ollama
+
+      ports:
+        - protocol: TCP
+          port: 11434
+
+    - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: kube-system
+
       ports:
         - protocol: UDP
           port: 53
+
         - protocol: TCP
           port: 53
+
 {{- end }}

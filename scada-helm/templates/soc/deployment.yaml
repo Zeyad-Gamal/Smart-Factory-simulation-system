@@ -1,0 +1,62 @@
+{{- if .Values.soc.enabled }}
+
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: soc
+  namespace: {{ .Values.namespaces.soc }}
+
+spec:
+  replicas: {{ .Values.soc.replicaCount }}
+
+  selector:
+    matchLabels:
+      app: soc
+
+  template:
+    metadata:
+      labels:
+        app: soc
+
+    spec:
+      containers:
+
+        - name: soc
+
+          image: "{{ .Values.soc.image.repository }}:{{ .Values.soc.image.tag }}"
+
+          imagePullPolicy: Always
+
+          ports:
+            - containerPort: 5000
+
+          envFrom:
+            - configMapRef:
+                name: soc-config
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 5000
+            initialDelaySeconds: 20
+            periodSeconds: 30
+
+          resources:
+            requests:
+              cpu: {{ .Values.soc.resources.requests.cpu }}
+              memory: {{ .Values.soc.resources.requests.memory }}
+
+            limits:
+              cpu: {{ .Values.soc.resources.limits.cpu }}
+              memory: {{ .Values.soc.resources.limits.memory }}
+
+{{- end }}

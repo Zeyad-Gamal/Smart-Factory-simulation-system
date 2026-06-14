@@ -1,0 +1,23 @@
+{{- if .Values.soc.enabled }}
+
+apiVersion: v1
+kind: ConfigMap
+
+metadata:
+  name: soc-config
+  namespace: {{ .Values.namespaces.soc }}
+
+data:
+  LARAVEL_URL: "http://backend:8000"
+
+  SOC_BASE_URL: "http://soc-service:5000"
+
+  OLLAMA_URL: "http://ollama-service:11434"
+
+  MODEL: {{ .Values.soc.model | quote }}
+
+  POLL_INTERVAL: "30"
+
+  MAX_LOGS_BATCH: "20"
+
+{{- end }}
