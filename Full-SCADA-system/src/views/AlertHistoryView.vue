@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 
 // ── Config ────────────────────────────────────────────────────
 const LARAVEL_URL  = '/api/'   // change if deployed
-const SOC_URL      = 'http://localhost:5000'   // change if deployed
+const SOC_URL      = 'http://soc:5000'   // change if deployed
 const POLL_INTERVAL = 5000                     // ms
 
 // ── State ─────────────────────────────────────────────────────
