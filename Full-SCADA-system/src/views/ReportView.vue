@@ -2,9 +2,13 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import * as XLSX from 'xlsx'
 
-const today = new Date()
-const currentYear = today.getFullYear()
-const currentMonth = today.getMonth() + 1
+// ─── Config ───
+const API_BASE = '/api/scada/history' // ← change if your Laravel API is on a different host
+
+function todayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 const buttonKeys = ['cumulativeOutput', 'instantaneousRate', 'otherValues', 'ptValues']
 const buttonLabels = {
@@ -15,13 +19,12 @@ const buttonLabels = {
 }
 const activeButton = ref('cumulativeOutput')
 
-const selectedYear = ref(currentYear)
-const selectedMonth = ref(currentMonth)
-const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i)
-const monthOptions = Array.from({ length: 12 }, (_, i) => i + 1)
+// ─── Date selection (single day, matches /api/scada/history?date=) ───
+const selectedDate = ref(todayStr())
 
 const isLoading = ref(true)
-const searchData = ref([])
+const errorMessage = ref('')
+const searchData = ref([]) // [{ name, time, value }]
 
 const showDetailModal = ref(false)
 const clickDate = ref('')
@@ -32,253 +35,227 @@ const startDate = ref('')
 const endDate = ref('')
 const formatOption = ref('xlsx')
 
-// ─── Factory Category Definitions ───
-const categories = [
-  { name: 'Total Output A (units)', base: 58400, range: 100 },
-  { name: 'Output Rate A (u/hr)',   base: 320,   range: 30 },
-  { name: 'Total Output B (units)', base: 47300, range: 100 },
-  { name: 'Motor Speed A (RPM)',    base: 1480,  range: 80 },
-  { name: 'Total Output C (units)', base: 62100, range: 100 },
-  { name: 'Output Rate B (u/hr)',   base: 280,   range: 25 },
-  { name: 'Motor Load (%)',         base: 74,    range: 12 },
-  { name: 'Vibration (mm/s)',       base: 3.2,   range: 1.5 },
-  { name: 'Hopper Level (m)',       base: 0.85,  range: 0.4 },
-  { name: 'Buffer Level (m)',       base: 4.2,   range: 1.0 },
-  { name: 'PT1 (bar)', base: 7.0, range: 1.0 },
-  { name: 'PT2 (bar)', base: 4.5, range: 1.0 },
-  { name: 'PT3 (bar)', base: 7.0, range: 1.0 },
-  { name: 'PT4 (bar)', base: 5.5, range: 1.0 },
-]
-
+// ─── Sensor name groups (must match `sensor_type` values returned by the API) ───
 const tableColumns = {
   cumulativeOutput: {
-    headers: ['Date', 'Total Output A (units)', 'Total Output B (units)', 'Total Output C (units)'],
+    headers: ['Time', 'Total Output A (units)', 'Total Output B (units)', 'Total Output C (units)'],
     fields: ['outputA', 'outputB', 'outputC'],
   },
   instantaneousRate: {
-    headers: ['Date', 'Output Rate A (u/hr)', 'Motor Speed A (RPM)', 'Output Rate B (u/hr)'],
+    headers: ['Time', 'Output Rate A (u/hr)', 'Motor Speed A (RPM)', 'Output Rate B (u/hr)'],
     fields: ['rateA', 'motorSpeedA', 'rateB'],
   },
   otherValues: {
-    headers: ['Date', 'Motor Load (%)', 'Vibration (mm/s)', 'Hopper Level (m)', 'Buffer Level (m)'],
+    headers: ['Time', 'Motor Load (%)', 'Vibration (mm/s)', 'Hopper Level (m)', 'Buffer Level (m)'],
     fields: ['motorLoad', 'vibration', 'hopperLevel', 'bufferLevel'],
   },
   ptValues: {
-    headers: ['Date', 'PT1 (bar)', 'PT2 (bar)', 'PT3 (bar)', 'PT4 (bar)'],
+    headers: ['Time', 'PT1 (bar)', 'PT2 (bar)', 'PT3 (bar)', 'PT4 (bar)'],
     fields: ['PT1', 'PT2', 'PT3', 'PT4'],
   },
 }
 
-const detailColumns = {
-  cumulativeOutput:  ['Time', 'Total Output A', 'Total Output B', 'Total Output C'],
-  instantaneousRate: ['Time', 'Output Rate A', 'Motor Speed A', 'Output Rate B'],
-  otherValues:       ['Time', 'Motor Load (%)', 'Vibration', 'Hopper Level', 'Buffer Level'],
-  ptValues:          ['Time', 'PT1', 'PT2', 'PT3', 'PT4'],
+// Maps each table field to the `name` (sensor_type) value coming back from the API.
+// Update the right-hand strings if your backend uses different sensor_type labels.
+const fieldToSensorName = {
+  cumulativeOutput: {
+    outputA: 'Total Output A (units)',
+    outputB: 'Total Output B (units)',
+    outputC: 'Total Output C (units)',
+  },
+  instantaneousRate: {
+    rateA: 'Output Rate A (u/hr)',
+    motorSpeedA: 'Motor Speed A (RPM)',
+    rateB: 'Output Rate B (u/hr)',
+  },
+  otherValues: {
+    motorLoad: 'Motor Load (%)',
+    vibration: 'Vibration (mm/s)',
+    hopperLevel: 'Hopper Level (m)',
+    bufferLevel: 'Buffer Level (m)',
+  },
+  ptValues: {
+    PT1: 'PT1 (bar)',
+    PT2: 'PT2 (bar)',
+    PT3: 'PT3 (bar)',
+    PT4: 'PT4 (bar)',
+  },
 }
 
-const nameFilters = {
-  cumulativeOutput:  ['Total Output A (units)', 'Total Output B (units)', 'Total Output C (units)'],
-  instantaneousRate: ['Output Rate A (u/hr)', 'Motor Speed A (RPM)', 'Output Rate B (u/hr)'],
-  otherValues:       ['Motor Load (%)', 'Vibration (mm/s)', 'Hopper Level (m)', 'Buffer Level (m)'],
-  ptValues:          ['PT1 (bar)', 'PT2 (bar)', 'PT3 (bar)', 'PT4 (bar)'],
+// Decimal places used when displaying each field
+const fieldDecimals = {
+  outputA: 0, outputB: 0, outputC: 0,
+  rateA: 1, motorSpeedA: 0, rateB: 1,
+  motorLoad: 1, vibration: 2, hopperLevel: 2, bufferLevel: 2,
+  PT1: 1, PT2: 1, PT3: 1, PT4: 1,
 }
 
-// ─── Demo Data ───
-function fetchData() {
+function fmt(value, decimals) {
+  if (value === undefined || value === null || Number.isNaN(value)) return '0'
+  return decimals === 0 ? String(Math.round(value)) : value.toFixed(decimals)
+}
+
+// ─── Fetch data for the selected date from Laravel ───
+async function fetchData() {
   isLoading.value = true
-  const year = selectedYear.value
-  const month = String(selectedMonth.value).padStart(2, '0')
-  const daysInMonth = new Date(year, selectedMonth.value, 0).getDate()
-  const demoData = []
-  let id = 1
-  for (let d = 1; d <= daysInMonth; d++) {
-    const date = `${year}-${month}-${String(d).padStart(2, '0')}`
-    for (let h = 0; h < 24; h++) {
-      const time = `${String(h).padStart(2, '0')}:00`
-      for (const cat of categories) {
-        const val = cat.base + (Math.random() - 0.5) * cat.range
-        demoData.push({ id: String(id++), value: String(parseFloat(val.toFixed(2))), name: cat.name, date, time })
+  errorMessage.value = ''
+  try {
+    const res = await fetch(`${API_BASE}?date=${selectedDate.value}`)
+    if (!res.ok) throw new Error(`Request failed (${res.status})`)
+    const json = await res.json()
+    // API returns a plain array of { name, time, value }
+    searchData.value = Array.isArray(json) ? json : (json.data || [])
+  } catch (err) {
+    console.error('Fetch error:', err)
+    errorMessage.value = 'Could not load data for this date.'
+    searchData.value = []
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// ─── Build the active table: one row per Time, columns = mapped sensors ───
+const activeTableData = computed(() => {
+  const cols = tableColumns[activeButton.value]
+  const mapping = fieldToSensorName[activeButton.value]
+  if (!cols || !mapping) return []
+
+  const rows = {}
+  searchData.value.forEach(item => {
+    for (const [field, sensorName] of Object.entries(mapping)) {
+      if (item.name === sensorName) {
+        if (!rows[item.time]) rows[item.time] = { time: item.time }
+        rows[item.time][field] = parseFloat(item.value)
       }
     }
-  }
-  searchData.value = demoData
-  isLoading.value = false
-}
-
-// ─── Computed Table Data ───
-const organizedData = computed(() => {
-  const fields = ['Total Output A (units)', 'Total Output B (units)', 'Total Output C (units)']
-  const dates = [...new Set(searchData.value.map(i => i.date))]
-  const processed = {}
-  dates.forEach(d => { processed[d] = {}; fields.forEach(f => { processed[d][f] = { time: '', value: 0 } }) })
-  searchData.value.forEach(entry => {
-    if (fields.includes(entry.name)) {
-      const cur = processed[entry.date][entry.name]
-      if (!cur.time || entry.time > cur.time) processed[entry.date][entry.name] = { time: entry.time, value: entry.value }
-    }
   })
-  return Object.keys(processed).sort().map(date => ({
-    date,
-    outputA: Math.round(parseFloat(processed[date]['Total Output A (units)']?.value) || 0),
-    outputB: Math.round(parseFloat(processed[date]['Total Output B (units)']?.value) || 0),
-    outputC: Math.round(parseFloat(processed[date]['Total Output C (units)']?.value) || 0),
-  }))
+
+  return Object.values(rows)
+    .sort((a, b) => a.time.localeCompare(b.time))
+    .map(row => {
+      const out = { time: row.time }
+      for (const field of cols.fields) {
+        out[field] = fmt(row[field], fieldDecimals[field] ?? 2)
+      }
+      return out
+    })
 })
-
-function computeDailyAvg(fieldNames) {
-  const result = {}
-  const dates = [...new Set(searchData.value.map(i => i.date))]
-  dates.forEach(d => { result[d] = {}; fieldNames.forEach(f => { result[d][f] = { total: 0, count: 0 } }) })
-  searchData.value.forEach(item => {
-    if (fieldNames.includes(item.name)) {
-      result[item.date][item.name].total += parseFloat(item.value) || 0
-      result[item.date][item.name].count++
-    }
-  })
-  return result
-}
-
-const organizedDataInstant = computed(() => {
-  const fields = ['Output Rate A (u/hr)', 'Motor Speed A (RPM)', 'Output Rate B (u/hr)']
-  const data = computeDailyAvg(fields)
-  return Object.entries(data).sort((a, b) => a[0].localeCompare(b[0])).map(([date, v]) => ({
-    date,
-    rateA: ((v['Output Rate A (u/hr)']?.total || 0) / (v['Output Rate A (u/hr)']?.count || 1)).toFixed(1),
-    motorSpeedA: Math.round((v['Motor Speed A (RPM)']?.total || 0) / (v['Motor Speed A (RPM)']?.count || 1)),
-    rateB: ((v['Output Rate B (u/hr)']?.total || 0) / (v['Output Rate B (u/hr)']?.count || 1)).toFixed(1),
-  }))
-})
-
-const organizedDataOthers = computed(() => {
-  const fields = ['Motor Load (%)', 'Vibration (mm/s)', 'Hopper Level (m)', 'Buffer Level (m)']
-  const data = computeDailyAvg(fields)
-  return Object.entries(data).sort((a, b) => a[0].localeCompare(b[0])).map(([date, v]) => ({
-    date,
-    motorLoad: ((v['Motor Load (%)']?.total || 0) / (v['Motor Load (%)']?.count || 1)).toFixed(1),
-    vibration: ((v['Vibration (mm/s)']?.total || 0) / (v['Vibration (mm/s)']?.count || 1)).toFixed(2),
-    hopperLevel: ((v['Hopper Level (m)']?.total || 0) / (v['Hopper Level (m)']?.count || 1)).toFixed(2),
-    bufferLevel: ((v['Buffer Level (m)']?.total || 0) / (v['Buffer Level (m)']?.count || 1)).toFixed(2),
-  }))
-})
-
-const organizedDataPressure = computed(() => {
-  const fields = ['PT1 (bar)', 'PT2 (bar)', 'PT3 (bar)', 'PT4 (bar)']
-  const data = computeDailyAvg(fields)
-  return Object.entries(data).sort((a, b) => a[0].localeCompare(b[0])).map(([date, v]) => ({
-    date,
-    PT1: ((v['PT1 (bar)']?.total || 0) / (v['PT1 (bar)']?.count || 1)).toFixed(1),
-    PT2: ((v['PT2 (bar)']?.total || 0) / (v['PT2 (bar)']?.count || 1)).toFixed(1),
-    PT3: ((v['PT3 (bar)']?.total || 0) / (v['PT3 (bar)']?.count || 1)).toFixed(1),
-    PT4: ((v['PT4 (bar)']?.total || 0) / (v['PT4 (bar)']?.count || 1)).toFixed(1),
-  }))
-})
-
-const activeTableData = computed(() => ({
-  cumulativeOutput: organizedData.value,
-  instantaneousRate: organizedDataInstant.value,
-  otherValues: organizedDataOthers.value,
-  ptValues: organizedDataPressure.value,
-}[activeButton.value] || []))
 
 const activeHeaders = computed(() => tableColumns[activeButton.value]?.headers || [])
 const activeFields = computed(() => tableColumns[activeButton.value]?.fields || [])
-const activeDetailHeaders = computed(() => detailColumns[activeButton.value] || [])
-const activeDetailFields = computed(() => tableColumns[activeButton.value]?.fields || [])
 const activeColSpan = computed(() => activeHeaders.value.length)
 
 function setActive(btn) { activeButton.value = btn }
 
-function onRowClick(date) {
-  clickDate.value = date
-  const filter = nameFilters[activeButton.value]
-  const filtered = searchData.value.filter(item => item.date === date && filter.includes(item.name))
-  const timeMap = {}
-  filtered.forEach(item => {
-    if (!timeMap[item.time]) timeMap[item.time] = {}
-    const val = parseFloat(item.value) || 0
-    if (activeButton.value === 'cumulativeOutput') {
-      if (item.name === 'Total Output A (units)') timeMap[item.time].outputA = Math.round(val)
-      else if (item.name === 'Total Output B (units)') timeMap[item.time].outputB = Math.round(val)
-      else if (item.name === 'Total Output C (units)') timeMap[item.time].outputC = Math.round(val)
-    } else if (activeButton.value === 'instantaneousRate') {
-      if (item.name === 'Output Rate A (u/hr)') timeMap[item.time].rateA = val.toFixed(1)
-      else if (item.name === 'Motor Speed A (RPM)') timeMap[item.time].motorSpeedA = Math.round(val)
-      else if (item.name === 'Output Rate B (u/hr)') timeMap[item.time].rateB = val.toFixed(1)
-    } else if (activeButton.value === 'otherValues') {
-      if (item.name === 'Motor Load (%)') timeMap[item.time].motorLoad = val.toFixed(1)
-      else if (item.name === 'Vibration (mm/s)') timeMap[item.time].vibration = val.toFixed(2)
-      else if (item.name === 'Hopper Level (m)') timeMap[item.time].hopperLevel = val.toFixed(2)
-      else if (item.name === 'Buffer Level (m)') timeMap[item.time].bufferLevel = val.toFixed(2)
-    } else if (activeButton.value === 'ptValues') {
-      if (item.name === 'PT1 (bar)') timeMap[item.time].PT1 = val.toFixed(1)
-      else if (item.name === 'PT2 (bar)') timeMap[item.time].PT2 = val.toFixed(1)
-      else if (item.name === 'PT3 (bar)') timeMap[item.time].PT3 = val.toFixed(1)
-      else if (item.name === 'PT4 (bar)') timeMap[item.time].PT4 = val.toFixed(1)
-    }
-  })
-  detailData.value = Object.keys(timeMap).sort().map(time => ({ time, ...timeMap[time] }))
+// Row click → show full breakdown for that time slot (re-uses same row data)
+function onRowClick(row) {
+  clickDate.value = `${selectedDate.value} ${row.time}`
+  detailData.value = [row]
   showDetailModal.value = true
 }
 
+// ─── Excel export modal ───
 function openDateRangeModal() {
-  startDate.value = `${selectedYear.value}-${String(selectedMonth.value).padStart(2,'0')}-01`
-  const lastDay = new Date(selectedYear.value, selectedMonth.value, 0).getDate()
-  endDate.value = `${selectedYear.value}-${String(selectedMonth.value).padStart(2,'0')}-${String(lastDay).padStart(2,'0')}`
+  startDate.value = selectedDate.value
+  endDate.value = selectedDate.value
   showDateRangeModal.value = true
 }
 
-function generateReport() {
+async function fetchRange(start, end) {
+  // Build list of dates between start and end (inclusive)
+  const dates = []
+  const cur = new Date(start)
+  const last = new Date(end)
+  while (cur <= last) {
+    dates.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`)
+    cur.setDate(cur.getDate() + 1)
+  }
+
+  // Fetch each day in parallel and tag results with their date
+  const results = await Promise.all(dates.map(async (date) => {
+    try {
+      const res = await fetch(`${API_BASE}?date=${date}`)
+      if (!res.ok) return []
+      const json = await res.json()
+      const items = Array.isArray(json) ? json : (json.data || [])
+      return items.map(item => ({ ...item, date }))
+    } catch {
+      return []
+    }
+  }))
+
+  return results.flat()
+}
+
+async function generateReport() {
   if (!startDate.value || !endDate.value) { alert('Please select start and end dates'); return }
   if (new Date(startDate.value) > new Date(endDate.value)) { alert('Start date cannot be after end date'); return }
+
   showDateRangeModal.value = false
+  isLoading.value = true
   try {
+    const rangeData = await fetchRange(startDate.value, endDate.value)
+    if (rangeData.length === 0) {
+      alert('No data found for the selected date range.')
+      return
+    }
+
     const workbook = XLSX.utils.book_new()
+
     if (formatOption.value === 'xlsx') {
-      const catDefs = {
-        'Cumulative Output': ['Total Output A (units)', 'Total Output B (units)', 'Total Output C (units)'],
-        'Instantaneous Rate': ['Output Rate A (u/hr)', 'Motor Speed A (RPM)', 'Output Rate B (u/hr)'],
-        'Other Values': ['Motor Load (%)', 'Vibration (mm/s)', 'Hopper Level (m)', 'Buffer Level (m)'],
-        'PT Values': ['PT1 (bar)', 'PT2 (bar)', 'PT3 (bar)', 'PT4 (bar)'],
-      }
-      Object.entries(catDefs).forEach(([category, fields]) => {
-        const filtered = searchData.value.filter(item => fields.includes(item.name) && item.date >= startDate.value && item.date <= endDate.value)
+      Object.entries(tableColumns).forEach(([key, cols]) => {
+        const mapping = fieldToSensorName[key]
+        const sensorNames = Object.values(mapping)
+
         const grouped = {}
-        filtered.forEach(item => {
-          const key = `${item.date}_${item.time}`
-          if (!grouped[key]) grouped[key] = { date: item.date, time: item.time }
-          grouped[key][item.name] = parseFloat(item.value).toFixed(2)
+        rangeData.forEach(item => {
+          if (!sensorNames.includes(item.name)) return
+          const rowKey = `${item.date}_${item.time}`
+          if (!grouped[rowKey]) grouped[rowKey] = { date: item.date, time: item.time }
+          grouped[rowKey][item.name] = parseFloat(item.value).toFixed(2)
         })
-        const rows = [['Date', 'Time', ...fields]]
-        Object.values(grouped).sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)).forEach(row => {
-          rows.push([row.date, row.time, ...fields.map(f => row[f] || 0)])
-        })
-        XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), category)
+
+        const rows = [['Date', 'Time', ...sensorNames]]
+        Object.values(grouped)
+          .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
+          .forEach(row => {
+            rows.push([row.date, row.time, ...sensorNames.map(n => row[n] || 0)])
+          })
+
+        XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), buttonLabels[key])
       })
       XLSX.writeFile(workbook, `Factory_Report_MultiSheet_${startDate.value}_${endDate.value}.xlsx`)
     } else {
-      const allFields = categories.map(c => c.name)
-      const filtered = searchData.value.filter(item => allFields.includes(item.name) && item.date >= startDate.value && item.date <= endDate.value)
+      const allSensorNames = Object.values(fieldToSensorName).flatMap(m => Object.values(m))
       const grouped = {}
-      filtered.forEach(item => {
-        const key = `${item.date}_${item.time}`
-        if (!grouped[key]) grouped[key] = { date: item.date, time: item.time }
-        grouped[key][item.name] = parseFloat(item.value).toFixed(2)
+      rangeData.forEach(item => {
+        if (!allSensorNames.includes(item.name)) return
+        const rowKey = `${item.date}_${item.time}`
+        if (!grouped[rowKey]) grouped[rowKey] = { date: item.date, time: item.time }
+        grouped[rowKey][item.name] = parseFloat(item.value).toFixed(2)
       })
-      const rows = [['Date', 'Time', ...allFields]]
-      Object.values(grouped).sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time)).forEach(row => {
-        rows.push([row.date, row.time, ...allFields.map(f => row[f] || 0)])
-      })
+
+      const rows = [['Date', 'Time', ...allSensorNames]]
+      Object.values(grouped)
+        .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
+        .forEach(row => {
+          rows.push([row.date, row.time, ...allSensorNames.map(n => row[n] || 0)])
+        })
+
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'Factory Data')
       XLSX.writeFile(workbook, `Factory_Report_Single_${startDate.value}_${endDate.value}.xlsx`)
     }
+
     alert('Report generated and downloaded successfully.')
   } catch (err) {
     console.error('Export error:', err)
-    alert('[DEMO] Report export simulated.')
+    alert('Report export failed. Please try again.')
+  } finally {
+    isLoading.value = false
   }
 }
 
-watch([selectedYear, selectedMonth], fetchData)
+watch(selectedDate, fetchData)
 
 let refreshTimer = null
 onMounted(() => { fetchData(); refreshTimer = setInterval(fetchData, 60000) })
@@ -296,7 +273,7 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
     <!-- Title -->
     <div class="hidden md:block text-center my-6">
       <h1 class="text-3xl lg:text-4xl font-bold text-on-surface font-headline">
-        {{ selectedYear }}/{{ String(selectedMonth).padStart(2,'0') }} Monthly Report
+        {{ selectedDate }} Daily Report
       </h1>
       <h2 class="text-lg text-on-surface-variant font-medium mt-1">{{ buttonLabels[activeButton] }}</h2>
     </div>
@@ -313,20 +290,15 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
       >{{ buttonLabels[key] }}</button>
     </div>
 
-    <!-- Year/Month + Export Row -->
+    <!-- Date Picker + Export Row -->
     <div class="flex items-center justify-between gap-2 mb-6 px-2">
-      <div class="flex items-center gap-0 bg-white/[0.03] border border-white/[0.06] rounded-xl py-2 sm:py-2.5 px-1 backdrop-blur-xl min-w-0">
-        <div class="flex items-center px-2 sm:px-3.5">
-          <span class="material-symbols-outlined text-primary text-lg sm:text-xl">calendar_today</span>
-        </div>
-        <select v-model="selectedYear" class="bg-transparent border-none text-on-surface text-sm sm:text-base font-semibold cursor-pointer outline-none px-1 py-0.5 font-label">
-          <option v-for="year in yearOptions" :key="year" :value="year" class="bg-surface-container-high text-on-surface">{{ year }}</option>
-        </select>
-        <span class="text-white/30 text-xs sm:text-[15px] mx-0.5 sm:mx-1">Year</span>
-        <select v-model="selectedMonth" class="bg-transparent border-none text-on-surface text-sm sm:text-base font-semibold cursor-pointer outline-none px-1 py-0.5 font-label">
-          <option v-for="month in monthOptions" :key="month" :value="month" class="bg-surface-container-high text-on-surface">{{ month }}</option>
-        </select>
-        <span class="text-white/30 text-xs sm:text-[15px] mr-2 sm:mr-3.5">Month</span>
+      <div class="flex items-center gap-2 bg-white/[0.03] border border-white/[0.06] rounded-xl py-2 sm:py-2.5 px-3 sm:px-4 backdrop-blur-xl min-w-0">
+        <span class="material-symbols-outlined text-primary text-lg sm:text-xl">calendar_today</span>
+        <input
+          type="date"
+          v-model="selectedDate"
+          class="bg-transparent border-none text-on-surface text-sm sm:text-base font-semibold cursor-pointer outline-none px-1 py-0.5 font-label"
+        />
       </div>
 
       <button
@@ -344,6 +316,13 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
       <div class="w-10 h-10 border-[3px] border-primary/20 border-t-primary rounded-full animate-spin"></div>
     </div>
 
+    <!-- Error -->
+    <div v-else-if="errorMessage" class="text-center py-16 text-white/60">
+      <span class="material-symbols-outlined text-5xl block mb-3 opacity-30">error</span>
+      <div class="text-base font-semibold mb-1">{{ errorMessage }}</div>
+      <div class="text-xs opacity-60">Check the API connection and try again.</div>
+    </div>
+
     <!-- Table -->
     <section v-else class="mx-0 sm:mx-2 rounded-2xl overflow-hidden relative backdrop-blur-2xl border border-white/5" style="background: rgba(255,255,255,0.02); box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);">
       <div class="absolute top-0 left-0 w-full h-0.5" style="background: linear-gradient(to right, transparent, rgba(244,162,91,0.4), transparent)"></div>
@@ -359,15 +338,15 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
               <td :colspan="activeColSpan" class="text-center py-16 text-white/40">
                 <span class="material-symbols-outlined text-5xl block mb-3 opacity-30">database</span>
                 <div class="text-base font-semibold mb-1">No data available</div>
-                <div class="text-xs opacity-60">No records found for this time period</div>
+                <div class="text-xs opacity-60">No records found for this date</div>
               </td>
             </tr>
             <tr
-              v-for="row in activeTableData" :key="row.date"
-              @click="onRowClick(row.date)"
+              v-for="row in activeTableData" :key="row.time"
+              @click="onRowClick(row)"
               class="cursor-pointer border-b border-white/[0.04] transition-colors duration-200 hover:bg-primary/[0.04]"
             >
-              <td class="px-3 sm:px-7 py-2.5 sm:py-3.5 font-medium text-on-surface whitespace-nowrap text-xs sm:text-sm">{{ row.date }}</td>
+              <td class="px-3 sm:px-7 py-2.5 sm:py-3.5 font-medium text-on-surface whitespace-nowrap text-xs sm:text-sm">{{ row.time }}</td>
               <td v-for="field in activeFields" :key="field" class="px-3 sm:px-7 py-2.5 sm:py-3.5 font-medium text-xs sm:text-[15px] text-on-surface/80 whitespace-nowrap">{{ row[field] }}</td>
             </tr>
           </tbody>
@@ -378,37 +357,20 @@ onUnmounted(() => { if (refreshTimer) clearInterval(refreshTimer) })
     <!-- Detail Modal -->
     <div v-show="showDetailModal" class="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" @click="showDetailModal = false"></div>
-      <div class="relative z-10 w-full max-w-3xl bg-surface-container-high border border-white/10 rounded-2xl shadow-2xl max-h-[85vh] flex flex-col">
+      <div class="relative z-10 w-full max-w-lg bg-surface-container-high border border-white/10 rounded-2xl shadow-2xl max-h-[85vh] flex flex-col">
         <div class="flex items-center justify-between p-6 border-b border-white/10">
           <h5 class="text-lg font-bold text-primary flex items-center gap-2 m-0">
-            <span class="material-symbols-outlined">calendar_today</span>
-            {{ clickDate }} — Daily Detail
+            <span class="material-symbols-outlined">schedule</span>
+            {{ clickDate }}
           </h5>
           <button class="text-white/60 hover:text-primary transition-colors bg-transparent border-none cursor-pointer" @click="showDetailModal = false">
             <span class="material-symbols-outlined">close</span>
           </button>
         </div>
-        <div class="flex-1 overflow-y-auto p-6">
-          <div class="rounded-lg overflow-y-auto max-h-[50vh] relative">
-            <table class="w-full border-collapse table-fixed">
-              <thead>
-                <tr>
-                  <th v-for="h in activeDetailHeaders" :key="h" class="sticky top-0 z-10 px-4 py-3 text-center text-white font-semibold border-b-2 border-primary/40" style="background-color: #1a1a22;">{{ h }}</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-if="detailData.length === 0">
-                  <td :colspan="activeDetailHeaders.length" class="text-center py-8 text-on-surface-variant">
-                    <span class="material-symbols-outlined text-3xl block mb-2 opacity-40">schedule</span>
-                    <div class="font-semibold">No hourly data for this date</div>
-                  </td>
-                </tr>
-                <tr v-else v-for="(item, idx) in detailData" :key="item.time" class="transition-colors hover:bg-primary/10" :class="idx % 2 === 0 ? 'bg-black/15' : 'bg-black/5'">
-                  <td class="px-4 py-2.5 text-center font-medium bg-black/20 text-primary/80">{{ item.time }}</td>
-                  <td v-for="field in activeDetailFields" :key="field" class="px-4 py-2.5 text-center text-on-surface/80">{{ item[field] || '0' }}</td>
-                </tr>
-              </tbody>
-            </table>
+        <div class="flex-1 overflow-y-auto p-6 space-y-3">
+          <div v-for="field in activeFields" :key="field" class="flex items-center justify-between px-4 py-3 rounded-lg bg-black/15">
+            <span class="text-sm text-white/60">{{ tableColumns[activeButton].headers[activeFields.indexOf(field) + 1] }}</span>
+            <span class="text-sm font-semibold text-primary/90">{{ detailData[0]?.[field] ?? '0' }}</span>
           </div>
         </div>
         <div class="p-4 border-t border-white/10 flex justify-end">
