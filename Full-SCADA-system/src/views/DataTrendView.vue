@@ -147,7 +147,7 @@ function generateDemoData() {
 //   //   return
 //   // }
 
-//   const res = await axios.get(`http://127.0.0.1:8000/api/scada/history?date=${selectedDate.value}`, {
+//   const res = await axios.get(`/api/scada/history?date=${selectedDate.value}`, {
 //   params: {
 //     category: activeCategoryKey.value,
 //     date: selectedDate.value
@@ -185,7 +185,7 @@ async function fetchData(showLoading = false) {
 
   try {
     const response = await fetch(
-      `http://127.0.0.1:8001/api/scada/history?date=${selectedDate.value}`
+      `/api/scada/history?date=${selectedDate.value}`
     )
 
     const apiData = await response.json()
