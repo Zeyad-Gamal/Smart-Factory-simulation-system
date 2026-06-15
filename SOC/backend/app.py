@@ -20,7 +20,7 @@ ingest_log_store  = deque(maxlen=1000)
 _lock = threading.Lock()
 
 # ── SCADA / Laravel config ────────────────────────────────────
-MACHINES_SYSTEM = os.getenv("MACHINES_SYSTEM", "http://127.0.0.1:8000")
+MACHINES_SYSTEM = os.getenv("LARAVEL_URL", "http://127.0.0.1:8000")
 
 def _now():
     return datetime.now(timezone.utc).isoformat()
