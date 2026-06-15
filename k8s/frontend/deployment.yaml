@@ -26,7 +26,7 @@ spec:
       
       containers:
         - name: frontend
-          image: digigrad/scada-frontend:v5
+          image: digigrad/scada-frontend:v8
           imagePullPolicy: Always
 
           ports:

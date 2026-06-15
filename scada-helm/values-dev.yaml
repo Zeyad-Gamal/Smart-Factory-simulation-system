@@ -4,7 +4,7 @@ namespaces:
 
 frontend:
   replicaCount: 2
-  image: digigrad/scada-frontend:v6
+  image: digigrad/scada-frontend:v8
   strategy:
       maxSurge: 1
       maxUnavailable: 1
@@ -107,7 +107,7 @@ agent:
 
   image:
     repository: digigrad/ai-agent
-    tag: v1
+    tag: v4
 
   resources:
     requests:
