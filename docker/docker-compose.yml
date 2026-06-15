@@ -34,7 +34,7 @@ services:
       - app-net
 
   frontend:
-    image: digigrad/scada-frontend:v6
+    image: digigrad/scada-frontend:v8
     container_name: scada-frontend
     restart: unless-stopped
     depends_on:
@@ -81,7 +81,7 @@ services:
     # build:
     #   context: ../SOC
     #   dockerfile: ../docker/agent/Dockerfile
-    image: digigrad/ai-agent:v1
+    image: digigrad/ai-agent:v2
     container_name: ai_agent
     restart: unless-stopped
     environment:
