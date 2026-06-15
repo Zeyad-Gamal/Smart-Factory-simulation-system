@@ -24,7 +24,7 @@ const selectedDate = ref(todayStr())
 
 const isLoading = ref(true)
 const errorMessage = ref('')
-const searchData = ref([]) // [{ name, time, value }]
+const searchData = ref([]) // [{ sensor_id, name, time, value }]
 
 const showDetailModal = ref(false)
 const clickDate = ref('')
@@ -35,15 +35,15 @@ const startDate = ref('')
 const endDate = ref('')
 const formatOption = ref('xlsx')
 
-// ─── Sensor name groups (must match `sensor_type` values returned by the API) ───
+// ─── Table column definitions ───
 const tableColumns = {
   cumulativeOutput: {
     headers: ['Time', 'Total Output A (units)', 'Total Output B (units)', 'Total Output C (units)'],
     fields: ['outputA', 'outputB', 'outputC'],
   },
   instantaneousRate: {
-    headers: ['Time', 'Output Rate A (u/hr)', 'Motor Speed A (RPM)', 'Output Rate B (u/hr)'],
-    fields: ['rateA', 'motorSpeedA', 'rateB'],
+    headers: ['Time', 'Output Rate A (u/hr)', 'Motor Speed A (RPM)', 'Motor Speed B (RPM)'],
+    fields: ['rateA', 'motorSpeedA', 'motorSpeedB'],
   },
   otherValues: {
     headers: ['Time', 'Motor Load (%)', 'Vibration (mm/s)', 'Hopper Level (m)', 'Buffer Level (m)'],
@@ -55,37 +55,36 @@ const tableColumns = {
   },
 }
 
-// Maps each table field to the `name` (sensor_type) value coming back from the API.
-// Update the right-hand strings if your backend uses different sensor_type labels.
-const fieldToSensorName = {
+// ─── Maps each table field to the real `sensor_id` from your sensors table ───
+const fieldToSensorId = {
   cumulativeOutput: {
-    outputA: 'Total Output A (units)',
-    outputB: 'Total Output B (units)',
-    outputC: 'Total Output C (units)',
+    outputA: 8,   // Total Output A (units)
+    outputB: 9,   // Total Output B (units)
+    outputC: 10,  // Total Output C (units)
   },
   instantaneousRate: {
-    rateA: 'Output Rate A (u/hr)',
-    motorSpeedA: 'Motor Speed A (RPM)',
-    rateB: 'Output Rate B (u/hr)',
+    rateA: 7,         // Output Rate A (units/hr)
+    motorSpeedA: 5,   // Motor Speed A (RPM)
+    motorSpeedB: 6,   // Motor Speed B (RPM)
   },
   otherValues: {
-    motorLoad: 'Motor Load (%)',
-    vibration: 'Vibration (mm/s)',
-    hopperLevel: 'Hopper Level (m)',
-    bufferLevel: 'Buffer Level (m)',
+    motorLoad: 11,     // Motor Load
+    vibration: 12,     // Vibration
+    hopperLevel: 13,   // Hopper Level
+    bufferLevel: 14,   // Buffer Level
   },
   ptValues: {
-    PT1: 'PT1 (bar)',
-    PT2: 'PT2 (bar)',
-    PT3: 'PT3 (bar)',
-    PT4: 'PT4 (bar)',
+    PT1: 1,  // PT1
+    PT2: 2,  // PT2
+    PT3: 3,  // PT3
+    PT4: 4,  // PT4
   },
 }
 
 // Decimal places used when displaying each field
 const fieldDecimals = {
   outputA: 0, outputB: 0, outputC: 0,
-  rateA: 1, motorSpeedA: 0, rateB: 1,
+  rateA: 1, motorSpeedA: 0, motorSpeedB: 0,
   motorLoad: 1, vibration: 2, hopperLevel: 2, bufferLevel: 2,
   PT1: 1, PT2: 1, PT3: 1, PT4: 1,
 }
@@ -103,7 +102,7 @@ async function fetchData() {
     const res = await fetch(`${API_BASE}?date=${selectedDate.value}`)
     if (!res.ok) throw new Error(`Request failed (${res.status})`)
     const json = await res.json()
-    // API returns a plain array of { name, time, value }
+    // API must return [{ sensor_id, name, time, value }, ...]
     searchData.value = Array.isArray(json) ? json : (json.data || [])
   } catch (err) {
     console.error('Fetch error:', err)
@@ -117,13 +116,13 @@ async function fetchData() {
 // ─── Build the active table: one row per Time, columns = mapped sensors ───
 const activeTableData = computed(() => {
   const cols = tableColumns[activeButton.value]
-  const mapping = fieldToSensorName[activeButton.value]
+  const mapping = fieldToSensorId[activeButton.value]
   if (!cols || !mapping) return []
 
   const rows = {}
   searchData.value.forEach(item => {
-    for (const [field, sensorName] of Object.entries(mapping)) {
-      if (item.name === sensorName) {
+    for (const [field, sensorId] of Object.entries(mapping)) {
+      if (Number(item.sensor_id) === Number(sensorId)) {
         if (!rows[item.time]) rows[item.time] = { time: item.time }
         rows[item.time][field] = parseFloat(item.value)
       }
@@ -162,7 +161,6 @@ function openDateRangeModal() {
 }
 
 async function fetchRange(start, end) {
-  // Build list of dates between start and end (inclusive)
   const dates = []
   const cur = new Date(start)
   const last = new Date(end)
@@ -171,7 +169,6 @@ async function fetchRange(start, end) {
     cur.setDate(cur.getDate() + 1)
   }
 
-  // Fetch each day in parallel and tag results with their date
   const results = await Promise.all(dates.map(async (date) => {
     try {
       const res = await fetch(`${API_BASE}?date=${date}`)
@@ -204,42 +201,61 @@ async function generateReport() {
 
     if (formatOption.value === 'xlsx') {
       Object.entries(tableColumns).forEach(([key, cols]) => {
-        const mapping = fieldToSensorName[key]
-        const sensorNames = Object.values(mapping)
+        const mapping = fieldToSensorId[key]
+        const sensorIdToField = Object.fromEntries(
+          Object.entries(mapping).map(([field, id]) => [Number(id), field])
+        )
+        const sensorIds = Object.values(mapping).map(Number)
 
         const grouped = {}
         rangeData.forEach(item => {
-          if (!sensorNames.includes(item.name)) return
+          if (!sensorIds.includes(Number(item.sensor_id))) return
           const rowKey = `${item.date}_${item.time}`
           if (!grouped[rowKey]) grouped[rowKey] = { date: item.date, time: item.time }
-          grouped[rowKey][item.name] = parseFloat(item.value).toFixed(2)
+          const field = sensorIdToField[Number(item.sensor_id)]
+          grouped[rowKey][field] = parseFloat(item.value).toFixed(2)
         })
 
-        const rows = [['Date', 'Time', ...sensorNames]]
+        const rows = [['Date', 'Time', ...cols.headers.slice(1)]]
         Object.values(grouped)
           .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
           .forEach(row => {
-            rows.push([row.date, row.time, ...sensorNames.map(n => row[n] || 0)])
+            rows.push([row.date, row.time, ...cols.fields.map(f => row[f] || 0)])
           })
 
         XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), buttonLabels[key])
       })
       XLSX.writeFile(workbook, `Factory_Report_MultiSheet_${startDate.value}_${endDate.value}.xlsx`)
     } else {
-      const allSensorNames = Object.values(fieldToSensorName).flatMap(m => Object.values(m))
-      const grouped = {}
-      rangeData.forEach(item => {
-        if (!allSensorNames.includes(item.name)) return
-        const rowKey = `${item.date}_${item.time}`
-        if (!grouped[rowKey]) grouped[rowKey] = { date: item.date, time: item.time }
-        grouped[rowKey][item.name] = parseFloat(item.value).toFixed(2)
+      // Single sheet: combine all categories
+      const allHeaders = []
+      const allFieldsWithSensorId = []
+      Object.entries(tableColumns).forEach(([key, cols]) => {
+        cols.fields.forEach((field, idx) => {
+          allHeaders.push(cols.headers[idx + 1])
+          allFieldsWithSensorId.push({ field, sensorId: Number(fieldToSensorId[key][field]) })
+        })
       })
 
-      const rows = [['Date', 'Time', ...allSensorNames]]
+      const sensorIdToField = Object.fromEntries(
+        allFieldsWithSensorId.map(({ field, sensorId }) => [sensorId, field])
+      )
+      const allSensorIds = allFieldsWithSensorId.map(f => f.sensorId)
+
+      const grouped = {}
+      rangeData.forEach(item => {
+        if (!allSensorIds.includes(Number(item.sensor_id))) return
+        const rowKey = `${item.date}_${item.time}`
+        if (!grouped[rowKey]) grouped[rowKey] = { date: item.date, time: item.time }
+        const field = sensorIdToField[Number(item.sensor_id)]
+        grouped[rowKey][field] = parseFloat(item.value).toFixed(2)
+      })
+
+      const rows = [['Date', 'Time', ...allHeaders]]
       Object.values(grouped)
         .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
         .forEach(row => {
-          rows.push([row.date, row.time, ...allSensorNames.map(n => row[n] || 0)])
+          rows.push([row.date, row.time, ...allFieldsWithSensorId.map(({ field }) => row[field] || 0)])
         })
 
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'Factory Data')
