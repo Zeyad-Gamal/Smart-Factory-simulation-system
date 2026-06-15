@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import * as XLSX from 'xlsx'
 
 // ─── Config ───
-const API_BASE = '/api/scada/history' // ← change if your Laravel API is on a different host
+const API_BASE = '/api/scada/history'
 
 function todayStr() {
   const d = new Date()
@@ -19,12 +19,11 @@ const buttonLabels = {
 }
 const activeButton = ref('cumulativeOutput')
 
-// ─── Date selection (single day, matches /api/scada/history?date=) ───
 const selectedDate = ref(todayStr())
 
 const isLoading = ref(true)
 const errorMessage = ref('')
-const searchData = ref([]) // [{ sensor_id, name, time, value }]
+const searchData = ref([]) // [{ name, time, value }]
 
 const showDetailModal = ref(false)
 const clickDate = ref('')
@@ -55,29 +54,31 @@ const tableColumns = {
   },
 }
 
-// ─── Maps each table field to the real `sensor_id` from your sensors table ───
-const fieldToSensorId = {
+// ─── Maps each field to { type, index } — Nth occurrence of that `name`/type within a timestamp ───
+// Based on observed order for "05:56": rpm, rate, total, total, total, level, level,
+// pressure, rpm, load, vibration, pressure, pressure, pressure
+const fieldToOccurrence = {
   cumulativeOutput: {
-    outputA: 8,   // Total Output A (units)
-    outputB: 9,   // Total Output B (units)
-    outputC: 10,  // Total Output C (units)
+    outputA: { type: 'total', index: 0 },
+    outputB: { type: 'total', index: 1 },
+    outputC: { type: 'total', index: 2 },
   },
   instantaneousRate: {
-    rateA: 7,         // Output Rate A (units/hr)
-    motorSpeedA: 5,   // Motor Speed A (RPM)
-    motorSpeedB: 6,   // Motor Speed B (RPM)
+    rateA:       { type: 'rate', index: 0 },
+    motorSpeedA: { type: 'rpm',  index: 0 },
+    motorSpeedB: { type: 'rpm',  index: 1 },
   },
   otherValues: {
-    motorLoad: 11,     // Motor Load
-    vibration: 12,     // Vibration
-    hopperLevel: 13,   // Hopper Level
-    bufferLevel: 14,   // Buffer Level
+    motorLoad:   { type: 'load',      index: 0 },
+    vibration:   { type: 'vibration', index: 0 },
+    hopperLevel: { type: 'level',     index: 0 },
+    bufferLevel: { type: 'level',     index: 1 },
   },
   ptValues: {
-    PT1: 1,  // PT1
-    PT2: 2,  // PT2
-    PT3: 3,  // PT3
-    PT4: 4,  // PT4
+    PT1: { type: 'pressure', index: 0 },
+    PT2: { type: 'pressure', index: 1 },
+    PT3: { type: 'pressure', index: 2 },
+    PT4: { type: 'pressure', index: 3 },
   },
 }
 
@@ -94,7 +95,35 @@ function fmt(value, decimals) {
   return decimals === 0 ? String(Math.round(value)) : value.toFixed(decimals)
 }
 
-// ─── Fetch data for the selected date from Laravel ───
+// ─── Group raw items by time, preserving original order, then extract by occurrence index ───
+function buildRowsFromItems(items) {
+  const byTime = {}
+  items.forEach(item => {
+    if (!byTime[item.time]) byTime[item.time] = []
+    byTime[item.time].push(item)
+  })
+
+  const rows = {}
+  for (const [time, timeItems] of Object.entries(byTime)) {
+    rows[time] = { time }
+    // For each (key) -> list of matching items of that type, in order
+    const seenByType = {}
+    timeItems.forEach(it => {
+      if (!seenByType[it.name]) seenByType[it.name] = []
+      seenByType[it.name].push(it)
+    })
+    rows[time].__byType = seenByType
+  }
+  return rows
+}
+
+function extractField(rowByType, type, index) {
+  const arr = rowByType?.[type]
+  if (!arr || arr[index] === undefined) return undefined
+  return parseFloat(arr[index].value)
+}
+
+// ─── Fetch data for the selected date ───
 async function fetchData() {
   isLoading.value = true
   errorMessage.value = ''
@@ -102,7 +131,6 @@ async function fetchData() {
     const res = await fetch(`${API_BASE}?date=${selectedDate.value}`)
     if (!res.ok) throw new Error(`Request failed (${res.status})`)
     const json = await res.json()
-    // API must return [{ sensor_id, name, time, value }, ...]
     searchData.value = Array.isArray(json) ? json : (json.data || [])
   } catch (err) {
     console.error('Fetch error:', err)
@@ -116,25 +144,19 @@ async function fetchData() {
 // ─── Build the active table: one row per Time, columns = mapped sensors ───
 const activeTableData = computed(() => {
   const cols = tableColumns[activeButton.value]
-  const mapping = fieldToSensorId[activeButton.value]
+  const mapping = fieldToOccurrence[activeButton.value]
   if (!cols || !mapping) return []
 
-  const rows = {}
-  searchData.value.forEach(item => {
-    for (const [field, sensorId] of Object.entries(mapping)) {
-      if (Number(item.sensor_id) === Number(sensorId)) {
-        if (!rows[item.time]) rows[item.time] = { time: item.time }
-        rows[item.time][field] = parseFloat(item.value)
-      }
-    }
-  })
+  const rows = buildRowsFromItems(searchData.value)
 
-  return Object.values(rows)
-    .sort((a, b) => a.time.localeCompare(b.time))
-    .map(row => {
-      const out = { time: row.time }
+  return Object.entries(rows)
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([time, row]) => {
+      const out = { time }
       for (const field of cols.fields) {
-        out[field] = fmt(row[field], fieldDecimals[field] ?? 2)
+        const { type, index } = mapping[field]
+        const val = extractField(row.__byType, type, index)
+        out[field] = fmt(val, fieldDecimals[field] ?? 2)
       }
       return out
     })
@@ -146,7 +168,6 @@ const activeColSpan = computed(() => activeHeaders.value.length)
 
 function setActive(btn) { activeButton.value = btn }
 
-// Row click → show full breakdown for that time slot (re-uses same row data)
 function onRowClick(row) {
   clickDate.value = `${selectedDate.value} ${row.time}`
   detailData.value = [row]
@@ -197,66 +218,60 @@ async function generateReport() {
       return
     }
 
+    // Group by date+time, preserving order per group
+    const byDateTime = {}
+    rangeData.forEach(item => {
+      const key = `${item.date}_${item.time}`
+      if (!byDateTime[key]) byDateTime[key] = { date: item.date, time: item.time, items: [] }
+      byDateTime[key].items.push(item)
+    })
+
+    // Pre-index occurrences per group
+    const indexed = Object.values(byDateTime).map(group => {
+      const seenByType = {}
+      group.items.forEach(it => {
+        if (!seenByType[it.name]) seenByType[it.name] = []
+        seenByType[it.name].push(it)
+      })
+      return { date: group.date, time: group.time, byType: seenByType }
+    }).sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
+
     const workbook = XLSX.utils.book_new()
 
     if (formatOption.value === 'xlsx') {
       Object.entries(tableColumns).forEach(([key, cols]) => {
-        const mapping = fieldToSensorId[key]
-        const sensorIdToField = Object.fromEntries(
-          Object.entries(mapping).map(([field, id]) => [Number(id), field])
-        )
-        const sensorIds = Object.values(mapping).map(Number)
-
-        const grouped = {}
-        rangeData.forEach(item => {
-          if (!sensorIds.includes(Number(item.sensor_id))) return
-          const rowKey = `${item.date}_${item.time}`
-          if (!grouped[rowKey]) grouped[rowKey] = { date: item.date, time: item.time }
-          const field = sensorIdToField[Number(item.sensor_id)]
-          grouped[rowKey][field] = parseFloat(item.value).toFixed(2)
-        })
-
+        const mapping = fieldToOccurrence[key]
         const rows = [['Date', 'Time', ...cols.headers.slice(1)]]
-        Object.values(grouped)
-          .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
-          .forEach(row => {
-            rows.push([row.date, row.time, ...cols.fields.map(f => row[f] || 0)])
+        indexed.forEach(group => {
+          const rowVals = cols.fields.map(field => {
+            const { type, index } = mapping[field]
+            const val = extractField(group.byType, type, index)
+            return val !== undefined ? val.toFixed(2) : 0
           })
-
+          rows.push([group.date, group.time, ...rowVals])
+        })
         XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), buttonLabels[key])
       })
       XLSX.writeFile(workbook, `Factory_Report_MultiSheet_${startDate.value}_${endDate.value}.xlsx`)
     } else {
-      // Single sheet: combine all categories
       const allHeaders = []
-      const allFieldsWithSensorId = []
+      const allFieldDefs = [] // { key, field }
       Object.entries(tableColumns).forEach(([key, cols]) => {
         cols.fields.forEach((field, idx) => {
           allHeaders.push(cols.headers[idx + 1])
-          allFieldsWithSensorId.push({ field, sensorId: Number(fieldToSensorId[key][field]) })
+          allFieldDefs.push({ key, field })
         })
-      })
-
-      const sensorIdToField = Object.fromEntries(
-        allFieldsWithSensorId.map(({ field, sensorId }) => [sensorId, field])
-      )
-      const allSensorIds = allFieldsWithSensorId.map(f => f.sensorId)
-
-      const grouped = {}
-      rangeData.forEach(item => {
-        if (!allSensorIds.includes(Number(item.sensor_id))) return
-        const rowKey = `${item.date}_${item.time}`
-        if (!grouped[rowKey]) grouped[rowKey] = { date: item.date, time: item.time }
-        const field = sensorIdToField[Number(item.sensor_id)]
-        grouped[rowKey][field] = parseFloat(item.value).toFixed(2)
       })
 
       const rows = [['Date', 'Time', ...allHeaders]]
-      Object.values(grouped)
-        .sort((a, b) => a.date.localeCompare(b.date) || a.time.localeCompare(b.time))
-        .forEach(row => {
-          rows.push([row.date, row.time, ...allFieldsWithSensorId.map(({ field }) => row[field] || 0)])
+      indexed.forEach(group => {
+        const rowVals = allFieldDefs.map(({ key, field }) => {
+          const { type, index } = fieldToOccurrence[key][field]
+          const val = extractField(group.byType, type, index)
+          return val !== undefined ? val.toFixed(2) : 0
         })
+        rows.push([group.date, group.time, ...rowVals])
+      })
 
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'Factory Data')
       XLSX.writeFile(workbook, `Factory_Report_Single_${startDate.value}_${endDate.value}.xlsx`)
