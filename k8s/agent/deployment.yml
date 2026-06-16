@@ -3,8 +3,6 @@ kind: Deployment
 metadata:
   name: ai-agent
   namespace: soc
-  labels:
-    app: ai-agent
 spec:
   replicas: 1
   selector:
@@ -17,14 +15,23 @@ spec:
     spec:
       containers:
         - name: agent
-          image: digigrad/ai-agent:v4  # ← replace with your image
+          image: digigrad/ai-agent:v4
+
           envFrom:
             - configMapRef:
                 name: soc-config
+
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openai-secret
+                  key: OPENAI_API_KEY
+
           resources:
             requests:
               memory: "128Mi"
-              cpu:    "100m"
+              cpu: "100m"
             limits:
               memory: "256Mi"
-              cpu:    "200m"
+              cpu: "200m"

@@ -2,4 +2,7 @@
 
 FROM mysql:8.0
 
-COPY scada_system.sql /init/scada_system.sql
+COPY /init/scada_system.sql /docker-entrypoint-initdb.d/
+
+
+# COPY scada_system.sql /docker-entrypoint-initdb.d/scada_system.sql

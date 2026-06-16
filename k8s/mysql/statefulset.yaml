@@ -19,30 +19,32 @@ spec:
     spec:
       containers:
         - name: mysql
-          image: mysql:8.0
+          image: scada-sql:latest
           imagePullPolicy: IfNotPresent
 
           ports:
             - containerPort: 3306
 
-          envFrom:
-            - secretRef:
-                name: mysql-secret
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+
+            - name: MYSQL_DATABASE
+              value: scada_db
 
           volumeMounts:
             - name: mysql-storage
               mountPath: /var/lib/mysql
-
-            #  THIS is how SQL should be loaded
-            - name: init-sql
-              mountPath: /docker-entrypoint-initdb.d
 
           readinessProbe:
             exec:
               command:
                 - sh
                 - -c
-                - mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD
+                - mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD --silent
             initialDelaySeconds: 20
             periodSeconds: 10
 
@@ -51,8 +53,8 @@ spec:
               command:
                 - sh
                 - -c
-                - mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD
-            initialDelaySeconds: 30
+                - mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD --silent
+            initialDelaySeconds: 40
             periodSeconds: 15
 
           resources:
@@ -63,15 +65,11 @@ spec:
               cpu: "1"
               memory: "1Gi"
 
-      volumes:
-        - name: init-sql
-          configMap:
-            name: mysql-init-sql
-
   volumeClaimTemplates:
     - metadata:
         name: mysql-storage
       spec:
+        storageClassName: local-storage
         accessModes:
           - ReadWriteOnce
         resources:
